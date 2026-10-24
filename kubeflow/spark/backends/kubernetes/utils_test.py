@@ -246,6 +246,31 @@ def sample_function_with_args(name: str, age: int):
             expected_output="1m",
         ),
         TestCase(
+            name="Bare number is bytes",
+            config={"k8s_memory": "1073741824"},
+            expected_output="1024m",
+        ),
+        TestCase(
+            name="Bare decimal number is bytes",
+            config={"k8s_memory": "512000000"},
+            expected_output="488m",
+        ),
+        TestCase(
+            name="Decimal exponent is bytes",
+            config={"k8s_memory": "1e9"},
+            expected_output="953m",
+        ),
+        TestCase(
+            name="Fractional bytes round up to 1m",
+            config={"k8s_memory": "1.5"},
+            expected_output="1m",
+        ),
+        TestCase(
+            name="Surrounding whitespace is ignored",
+            config={"k8s_memory": " 2Gi "},
+            expected_output="2g",
+        ),
+        TestCase(
             name="Convert fractional Gi to Mi",
             config={"k8s_memory": "1.5Gi"},
             expected_output="1536m",
@@ -255,6 +280,16 @@ def sample_function_with_args(name: str, age: int):
 def test_memory_kubernetes_to_spark(test_case: TestCase) -> None:
     """Tests _memory_kubernetes_to_spark."""
     assert _memory_kubernetes_to_spark(test_case.config["k8s_memory"]) == test_case.expected_output
+
+
+@pytest.mark.parametrize(
+    "memory",
+    [1024, 2.5, None, "", "   ", "abc", "0", "-1Gi", "1.2.3Gi"],
+)
+def test_memory_kubernetes_to_spark_rejects_invalid(memory) -> None:
+    """Tests _memory_kubernetes_to_spark raises ValueError for invalid input."""
+    with pytest.raises(ValueError):
+        _memory_kubernetes_to_spark(memory)
 
 
 @pytest.mark.parametrize(

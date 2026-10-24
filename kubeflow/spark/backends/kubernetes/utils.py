@@ -28,6 +28,7 @@ import uuid
 
 from kubeflow_spark_api import models
 from kubernetes import client
+from kubernetes.utils.quantity import parse_quantity
 
 from kubeflow.common import constants as common_constants
 from kubeflow.common.utils import validate_python_function
@@ -206,8 +207,14 @@ def _memory_kubernetes_to_spark(memory: str) -> str:
     Returns:
         Memory value formatted using Spark-compatible units.
     """
-    if not memory or not memory[-1].isalpha():
-        return memory
+    if not isinstance(memory, str):
+        raise ValueError(
+            f"memory must be a Kubernetes quantity string, got {type(memory).__name__}"
+        )
+
+    memory = memory.strip()
+    if not memory:
+        raise ValueError("memory must not be empty")
 
     match = re.match(
         r"^(\d+(?:\.\d+)?)\s*([KMGTPE]i?|[kmgtp]b?)$",
@@ -215,7 +222,7 @@ def _memory_kubernetes_to_spark(memory: str) -> str:
         re.IGNORECASE,
     )
     if not match:
-        return memory
+        return _memory_bytes_to_spark(memory)
 
     # Keep the original case: Kubernetes decimal kilo is "k", while "K" is not a
     # valid Kubernetes suffix and is treated as Spark's binary "k".
@@ -263,6 +270,34 @@ def _memory_kubernetes_to_spark(memory: str) -> str:
         return coefficient + spark_suffix
 
     mebibytes = scaled_coefficient * (2**exponent) // (scale * 2**20)
+    return f"{max(mebibytes, 1)}m"
+
+
+def _memory_bytes_to_spark(memory: str) -> str:
+    """Resolve a suffix-less Kubernetes quantity to a Spark MiB value.
+
+    Kubernetes reads a bare number as bytes and also accepts a decimal
+    exponent (``1e9``). Spark reads a bare number as MiB and rejects
+    exponents and fractions, so these forms cannot be passed through.
+
+    Args:
+        memory: Quantity without a unit suffix, e.g. ``"1073741824"``.
+
+    Returns:
+        Memory value in MiB using Spark notation.
+
+    Raises:
+        ValueError: If the value is not a Kubernetes quantity or is not positive.
+    """
+    try:
+        total_bytes = parse_quantity(memory)
+    except ValueError as err:
+        raise ValueError(f"Invalid memory value {memory!r}: {err}") from None
+
+    if total_bytes <= 0:
+        raise ValueError(f"memory must be positive, got {memory!r}")
+
+    mebibytes = int(total_bytes // (2**20))
     return f"{max(mebibytes, 1)}m"
 
 
